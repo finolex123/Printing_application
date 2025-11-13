@@ -1,0 +1,65 @@
+{
+  "name": "printing-software",
+  "version": "1.0.0",
+  "productName": "Printing Software",
+  "description": "A desktop app for printing via USB or Network printers",
+  "author": "Your Name",
+  "license": "ISC",
+  "main": "index.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "build": {
+    "appId": "com.yourcompany.printingsoftware",
+    "productName": "Printing Software",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "index.html",
+      "Print.html",
+      "index.js",
+      "preload.js",
+      "Pages/**/*",
+      "Services/**/*",
+      "Styles/**/*",
+      "Utility/**/*",
+      "login.js",
+      "print.js",
+      "Api.js"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "artifactName": "${productName}_Setup_${version}.exe"
+    }
+  },
+  "dependencies": {
+    "axios": "^1.13.0",
+    "escpos": "^3.0.0-alpha.6",
+    "escpos-usb": "^3.0.0-alpha.4",
+    "sqlite3": "^5.1.7",
+    "usb": "^2.16.0"
+  },
+  "devDependencies": {
+    "electron": "^39.0.0",
+    "electron-builder": "^26.0.12",
+    "electron-packager": "^17.1.2"
+  }
+}

@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Label Printer</title>
+    <link rel="stylesheet" href="./Styles/print.css" />
+  </head>
+  <body>
+    <div class="container">
+      <h1>🖨️ Label Printer</h1>
+      <button id="logoutBtn">Logout</button>
+
+      <!-- Printer Connection Section -->
+      <div class="connection-section">
+        <h2>Printer Connection</h2>
+
+        <!-- Status Display -->
+        <div class="status disconnected" id="status">
+          ⚫ Printer Disconnected
+        </div>
+
+        <div class="form-group">
+          <label for="printerIP">Printer IP Address</label>
+          <input
+            type="text"
+            id="printerIP"
+            placeholder="192.168.1.100"
+            value="192.168.1.100"
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="printerPort">Port</label>
+          <input
+            type="number"
+            id="printerPort"
+            placeholder="9100"
+            value="9100"
+          />
+        </div>
+
+        <div class="button-group">
+          <button id="connectBtn" class="btn-primary">
+            Connect to Printer
+          </button>
+          <button id="connectusbBtn" class="btn-primary">
+            Connect using usb
+          </button>
+          <button
+            id="disconnectBtn"
+            class="btn-secondary"
+            style="display: none"
+          >
+            Disconnect Printer
+          </button>
+        </div>
+        <div class="message" id="connectionMessage"></div>
+      </div>
+
+      <!-- Generate Codes Section -->
+      <div class="generate-section">
+        <h2>Generate Codes</h2>
+
+        <div class="form-group">
+          <label for="quantity">Quantity</label>
+          <input
+            type="number"
+            id="quantity"
+            placeholder="Enter number of codes"
+            min="1"
+            max="1000"
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="generateLabelType">Label Type</label>
+          <select id="generateLabelType">
+            <option value="master">Master Label</option>
+            <option value="mono">Mono Label</option>
+          </select>
+        </div>
+
+        <button id="generateBtn" class="btn-primary">Generate Codes</button>
+        <div class="message" id="generateMessage"></div>
+      </div>
+
+      <!-- Print Section -->
+      <div class="print-section">
+        <h2>Print Labels</h2>
+
+        <div class="codes-info">
+          <div class="info-item">
+            <span class="info-label">Pending:</span>
+            <span class="info-value" id="pendingCount">0</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Printed:</span>
+            <span class="info-value" id="printedCount">0</span>
+          </div>
+        </div>
+
+        <div class="codes-container" id="codesContainer">
+          <div class="empty-state">
+            No codes generated yet. Generate some codes to get started.
+          </div>
+        </div>
+
+        <div class="button-group">
+          <button id="printAllBtn" class="btn-primary" disabled>
+            Print All Pending Codes
+          </button>
+          <button id="clearAllBtn" class="btn-danger">Clear All Codes</button>
+        </div>
+
+        <div class="message" id="printMessage"></div>
+      </div>
+    </div>
+
+    <script src="./print.js"></script>
+  </body>
+</html>
