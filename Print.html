@@ -3,6 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self';"
+    />
     <title>Label Printer</title>
     <link rel="stylesheet" href="./Styles/print.css" />
   </head>
@@ -13,45 +17,31 @@
 
       <!-- Printer Connection Section -->
       <div class="connection-section">
-        <h2>Printer Connection</h2>
+        <h2>Printer Selection</h2>
 
         <!-- Status Display -->
         <div class="status disconnected" id="status">
-          ⚫ Printer Disconnected
+          ⚫ No Printer Selected
         </div>
 
         <div class="form-group">
-          <label for="printerIP">Printer IP Address</label>
-          <input
-            type="text"
-            id="printerIP"
-            placeholder="192.168.1.100"
-            value="192.168.1.100"
-          />
-        </div>
-
-        <div class="form-group">
-          <label for="printerPort">Port</label>
-          <input
-            type="number"
-            id="printerPort"
-            placeholder="9100"
-            value="9100"
-          />
+          <label for="printerSelect">Select Printer</label>
+          <select id="printerSelect">
+            <option value="">-- Select a printer --</option>
+          </select>
+          <button id="refreshPrintersBtn" class="btn-secondary" style="margin-top: 10px;">
+            🔄 Refresh Printers
+          </button>
         </div>
 
         <div class="button-group">
-          <button id="connectBtn" class="btn-primary">
-            Connect to Printer
+          <button id="connectBtn" class="btn-primary" disabled>
+            Select Printer
           </button>
-          <button id="connectusbBtn" class="btn-primary">
-            Connect using usb
+          <button id="testPrintBtn" class="btn-secondary" style="display: none;">
+            Test Print
           </button>
-          <button
-            id="disconnectBtn"
-            class="btn-secondary"
-            style="display: none"
-          >
+          <button id="disconnectBtn" class="btn-secondary" style="display: none;">
             Disconnect Printer
           </button>
         </div>
@@ -76,8 +66,8 @@
         <div class="form-group">
           <label for="generateLabelType">Label Type</label>
           <select id="generateLabelType">
-            <option value="master">Master Label</option>
-            <option value="mono">Mono Label</option>
+            <option value="master">Master Label (100x50mm)</option>
+            <option value="mono">Mono Label (60x40mm)</option>
           </select>
         </div>
 

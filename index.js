@@ -1,8 +1,11 @@
 const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
 
+// Functional printer utilities
 const printer = require(path.join(__dirname, "Utility", "Printer"));
 const db = require(path.join(__dirname, "Utility", "Sqlite"));
+
+let selectedPrinter = "";
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -14,6 +17,7 @@ function createWindow() {
       contextIsolation: true,
     },
   });
+
   win.loadFile(path.join(__dirname, "Print.html"));
 }
 
@@ -24,62 +28,77 @@ app.whenReady().then(() => {
 
 // ========== PRINTER FUNCTIONS ==========
 
-// Connect to Printer
-ipcMain.handle("connect-printer", async (event, { ip, port }) => {
-  return new Promise((resolve) => {
-    printer.connectPrinter(ip, port, (err) => {
-      if (err) return resolve({ success: false, message: err.message });
-      return resolve({ success: true, message: "Connected Successfully" });
-    });
-  });
+// Get installed printers
+ipcMain.handle("get-installed-printers", async () => {
+  try {
+    const printers = await printer.getInstalledPrinters();
+    return {
+      success: true,
+      printers,
+      message: `Found ${printers.length} printer(s)`,
+    };
+  } catch (error) {
+    console.error("Error getting printers:", error);
+    return { success: false, printers: [], message: error.message };
+  }
 });
 
-ipcMain.handle("printer:connect-usb", async () => {
-  return new Promise((resolve, reject) => {
-    printer.connectPrinterByUSB((err, type) => {
-      if (err) reject(err);
-      else resolve(type);
-    });
-  });
+// Select a printer
+ipcMain.handle("select-printer", async (event, printerName) => {
+  selectedPrinter = printerName;
+  return {
+    success: true,
+    message: `Printer "${printerName}" selected successfully`,
+  };
 });
 
-// Disconnect Printer
-ipcMain.handle("disconnect-printer", async (event) => {
-  return new Promise((resolve) => {
-    try {
-      printer.disconnectPrinter();
-      return resolve({ success: true, message: "Printer Disconnected" });
-    } catch (err) {
-      return resolve({ success: false, message: err.message });
-    }
-  });
+// Test printer
+ipcMain.handle("test-printer", async () => {
+  if (!selectedPrinter)
+    return { success: false, message: "No printer selected" };
+  try {
+    await printer.testPrinter(selectedPrinter);
+    return { success: true, message: "Test print sent successfully" };
+  } catch (error) {
+    console.error("Error testing printer:", error);
+    return { success: false, message: error.message };
+  }
 });
 
-// Print Label
+// Print label
 ipcMain.handle("print-label", async (event, { code, labelType }) => {
-  return new Promise((resolve) => {
-    printer.printLabel(code, labelType, (err) => {
-      if (err) {
-        return resolve({ success: false, message: err });
-      }
-      return resolve({ success: true, message: "Printed Successfully" });
-    });
-  });
+  if (!selectedPrinter)
+    return { success: false, message: "No printer selected" };
+
+  try {
+    if (labelType === "master") {
+      await printer.printMasterLabel(code, selectedPrinter);
+    } else if (labelType === "mono") {
+      await printer.printMonoLabel(code, selectedPrinter);
+    } else {
+      throw new Error("Invalid label type");
+    }
+
+    return { success: true, message: "Label printed successfully" };
+  } catch (error) {
+    console.error("Error printing label:", error);
+    return { success: false, message: error.message };
+  }
 });
 
 // ========== DATABASE FUNCTIONS ==========
 
-// Bulk Insert Codes
+// Bulk insert codes
 ipcMain.handle("bulk-insert", async (event, items) => {
   return new Promise((resolve) => {
     db.bulkInsert(items, (err) => {
       if (err) return resolve({ success: false, message: err.message });
-      resolve({ success: true, message: "Inserted Successfully" });
+      resolve({ success: true, message: "Inserted successfully" });
     });
   });
 });
 
-// Fetch Records By Status (0 = not printed, 1 = printed)
+// Fetch records by status
 ipcMain.handle("fetch-records", async (event, isPrinted) => {
   return new Promise((resolve) => {
     db.fetchByStatus(isPrinted, (err, rows) => {
@@ -89,45 +108,41 @@ ipcMain.handle("fetch-records", async (event, isPrinted) => {
   });
 });
 
-// Delete Single Record by ID
+// Delete single record
 ipcMain.handle("delete-record", async (event, id) => {
   return new Promise((resolve) => {
     db.deleteRecord(id, (err) => {
       if (err) return resolve({ success: false, message: err.message });
-      resolve({ success: true, message: "Record Deleted" });
+      resolve({ success: true, message: "Record deleted" });
     });
   });
 });
 
-// Delete All Records
-ipcMain.handle("delete-all-records", async (event) => {
+// Delete all records
+ipcMain.handle("delete-all-records", async () => {
   return new Promise((resolve) => {
     db.deleteAllRecords((err) => {
       if (err) return resolve({ success: false, message: err.message });
-      resolve({ success: true, message: "All Records Deleted" });
+      resolve({ success: true, message: "All records deleted" });
     });
   });
 });
 
-// Mark Record as Printed
+// Mark record as printed
 ipcMain.handle("mark-as-printed", async (event, id) => {
   return new Promise((resolve) => {
     db.markAsPrinted(id, (err) => {
       if (err) return resolve({ success: false, message: err.message });
-      resolve({ success: true, message: "Marked as Printed" });
+      resolve({ success: true, message: "Marked as printed" });
     });
   });
 });
 
 // Handle app quit
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
+  if (process.platform !== "darwin") app.quit();
 });
 
 app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
-  }
+  if (BrowserWindow.getAllWindows().length === 0) createWindow();
 });

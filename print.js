@@ -6,13 +6,16 @@ document.addEventListener("DOMContentLoaded", function () {
   // Add event listeners to buttons
   document
     .getElementById("connectBtn")
-    .addEventListener("click", connectPrinter);
-    document
-    .getElementById("connectusbBtn")
-    .addEventListener("click", connectUsbPrinter);
+    .addEventListener("click", selectPrinter);
   document
     .getElementById("disconnectBtn")
     .addEventListener("click", disconnectPrinter);
+  document
+    .getElementById("refreshPrintersBtn")
+    .addEventListener("click", loadPrinters);
+  document
+    .getElementById("testPrintBtn")
+    .addEventListener("click", testPrinter);
   document
     .getElementById("generateBtn")
     .addEventListener("click", generateCodes);
@@ -22,22 +25,81 @@ document.addEventListener("DOMContentLoaded", function () {
   document
     .getElementById("clearAllBtn")
     .addEventListener("click", clearAllCodes);
+  document.getElementById("logoutBtn").addEventListener("click", logout);
 
-  // Load initial codes
+  // Printer select change handler
+  document
+    .getElementById("printerSelect")
+    .addEventListener("change", function () {
+      const connectBtn = document.getElementById("connectBtn");
+      connectBtn.disabled = !this.value;
+    });
+
+  // Load initial data
+  loadPrinters();
   loadCodes();
 });
 
-// Connect to Printer
-async function connectPrinter() {
-  const ip = document.getElementById("printerIP").value.trim();
-  const port = parseInt(document.getElementById("printerPort").value);
+// Load available printers
+async function loadPrinters() {
+  const select = document.getElementById("printerSelect");
+  const messageDiv = document.getElementById("connectionMessage");
+  const refreshBtn = document.getElementById("refreshPrintersBtn");
+
+  refreshBtn.disabled = true;
+  refreshBtn.textContent = "Loading...";
+
+  try {
+    const result = await window.api.getInstalledPrinters();
+
+    if (result.success) {
+      select.innerHTML = '<option value="">-- Select a printer --</option>';
+
+      result.printers.forEach((printer) => {
+        const option = document.createElement("option");
+        option.value = printer.name;
+        option.textContent =
+          printer.name + (printer.isDefault ? " (Default)" : "");
+        if (printer.isDefault) {
+          option.selected = true;
+          document.getElementById("connectBtn").disabled = false;
+        }
+        select.appendChild(option);
+      });
+
+      if (result.printers.length === 0) {
+        showMessage(messageDiv, "No printers found on system", "error");
+      }
+    } else {
+      showMessage(
+        messageDiv,
+        "Failed to load printers: " + result.message,
+        "error"
+      );
+    }
+  } catch (error) {
+    showMessage(
+      messageDiv,
+      "Error loading printers: " + error.message,
+      "error"
+    );
+  } finally {
+    refreshBtn.disabled = false;
+    refreshBtn.textContent = "🔄 Refresh Printers";
+  }
+}
+
+// Select Printer
+async function selectPrinter() {
+  const printerName = document.getElementById("printerSelect").value;
   const connectBtn = document.getElementById("connectBtn");
   const disconnectBtn = document.getElementById("disconnectBtn");
+  const testPrintBtn = document.getElementById("testPrintBtn");
   const statusDiv = document.getElementById("status");
   const messageDiv = document.getElementById("connectionMessage");
 
-  if (!ip) {
-    showMessage(messageDiv, "Please enter printer IP address", "error");
+  if (!printerName) {
+    showMessage(messageDiv, "Please select a printer", "error");
     return;
   }
 
@@ -45,21 +107,22 @@ async function connectPrinter() {
   connectBtn.textContent = "Connecting...";
 
   try {
-    const result = await window.api.connectPrinter(ip, port);
+    const result = await window.api.selectPrinter(printerName);
 
     if (result.success) {
       isConnected = true;
       statusDiv.className = "status connected";
-      statusDiv.textContent = "🟢 Printer Connected";
+      statusDiv.textContent = "🟢 Printer Selected: " + printerName;
 
       connectBtn.style.display = "none";
-      disconnectBtn.style.display = "block";
+      disconnectBtn.style.display = "inline-block";
+      testPrintBtn.style.display = "inline-block";
 
       updatePrintButtonState();
       showMessage(messageDiv, result.message, "success");
     } else {
       handleConnectionError(connectBtn, statusDiv, result.message);
-      showMessage(messageDiv, "Connection failed: " + result.message, "error");
+      showMessage(messageDiv, "Selection failed: " + result.message, "error");
     }
   } catch (error) {
     handleConnectionError(connectBtn, statusDiv, error.message);
@@ -67,41 +130,27 @@ async function connectPrinter() {
   }
 }
 
-// connect through USB
-
-async function connectUsbPrinter() {
-  const connectBtn = document.getElementById("connectBtn");
-  const disconnectBtn = document.getElementById("disconnectBtn");
-  const statusDiv = document.getElementById("status");
+// Test Printer
+async function testPrinter() {
   const messageDiv = document.getElementById("connectionMessage");
+  const testBtn = document.getElementById("testPrintBtn");
 
-  connectBtn.disabled = true;
-  connectBtn.textContent = "Connecting...";
+  testBtn.disabled = true;
+  testBtn.textContent = "Testing...";
 
   try {
-    const usbresuilt = await window.api.connectPrinterByUSB();
+    const result = await window.api.testPrinter();
 
-    if (usbresuilt.success) {
-      isConnected = true;
-      statusDiv.className = "status connected";
-      statusDiv.textContent = "🟢 Printer Connected";
-
-      connectBtn.style.display = "none";
-      disconnectBtn.style.display = "block";
-
-      updatePrintButtonState();
-      showMessage(messageDiv, usbresuilt.message, "success");
+    if (result.success) {
+      showMessage(messageDiv, "✓ Test print sent successfully", "success");
     } else {
-      handleConnectionError(connectBtn, statusDiv, usbresuilt.message);
-      showMessage(
-        messageDiv,
-        "Connection failed: " + usbresuilt.message,
-        "error"
-      );
+      showMessage(messageDiv, "Test print failed: " + result.message, "error");
     }
   } catch (error) {
-    handleConnectionError(connectBtn, statusDiv, error.message);
     showMessage(messageDiv, "Error: " + error.message, "error");
+  } finally {
+    testBtn.disabled = false;
+    testBtn.textContent = "Test Print";
   }
 }
 
@@ -109,6 +158,7 @@ async function connectUsbPrinter() {
 async function disconnectPrinter() {
   const connectBtn = document.getElementById("connectBtn");
   const disconnectBtn = document.getElementById("disconnectBtn");
+  const testPrintBtn = document.getElementById("testPrintBtn");
   const statusDiv = document.getElementById("status");
   const messageDiv = document.getElementById("connectionMessage");
 
@@ -118,12 +168,13 @@ async function disconnectPrinter() {
     if (result.success) {
       isConnected = false;
       statusDiv.className = "status disconnected";
-      statusDiv.textContent = "⚫ Printer Disconnected";
+      statusDiv.textContent = "⚫ No Printer Selected";
 
-      connectBtn.style.display = "block";
+      connectBtn.style.display = "inline-block";
       disconnectBtn.style.display = "none";
-      connectBtn.disabled = false;
-      connectBtn.textContent = "Connect to Printer";
+      testPrintBtn.style.display = "none";
+      connectBtn.disabled = !document.getElementById("printerSelect").value;
+      connectBtn.textContent = "Select Printer";
 
       updatePrintButtonState();
       showMessage(messageDiv, result.message, "success");
@@ -149,7 +200,6 @@ async function generateCodes() {
   generateBtn.textContent = "Generating...";
 
   try {
-    // Generate code items for bulk insert
     const items = [];
     for (let i = 0; i < quantity; i++) {
       const code = `CODE-${labelType.toUpperCase()}-${Date.now()}-${i}`;
@@ -165,7 +215,7 @@ async function generateCodes() {
         "success"
       );
       document.getElementById("quantity").value = "";
-      await loadCodes(); // Reload codes from database
+      await loadCodes();
     } else {
       showMessage(messageDiv, "Generation failed: " + result.message, "error");
     }
@@ -180,7 +230,6 @@ async function generateCodes() {
 // Load codes from database
 async function loadCodes() {
   try {
-    // Load pending codes
     const pendingResult = await window.api.fetchRecords(0);
     const printedResult = await window.api.fetchRecords(1);
 
@@ -189,8 +238,6 @@ async function loadCodes() {
       updateCodesDisplay();
       updatePrintButtonState();
       updateCounts();
-    } else {
-      console.error("Failed to load codes");
     }
   } catch (error) {
     console.error("Error loading codes:", error);
@@ -203,7 +250,7 @@ async function printAllCodes() {
   const messageDiv = document.getElementById("printMessage");
 
   if (!isConnected) {
-    showMessage(messageDiv, "Please connect to printer first", "error");
+    showMessage(messageDiv, "Please select a printer first", "error");
     return;
   }
 
@@ -214,20 +261,20 @@ async function printAllCodes() {
   }
 
   printBtn.disabled = true;
-  printBtn.textContent = "Printing...";
+  printBtn.textContent = `Printing 0/${pendingCodes.length}...`;
 
   let successCount = 0;
   let errorCount = 0;
 
   try {
-    // Print each pending code sequentially
-    for (const code of pendingCodes) {
+    for (let i = 0; i < pendingCodes.length; i++) {
+      const code = pendingCodes[i];
+      printBtn.textContent = `Printing ${i + 1}/${pendingCodes.length}...`;
+
       try {
         const result = await window.api.printLabel(code.Code, code.CodeType);
-        showMessage(messageDiv, result, "error");
 
         if (result.success) {
-          // Mark as printed in database
           await window.api.markAsPrinted(code.RecNo);
           successCount++;
         } else {
@@ -240,7 +287,6 @@ async function printAllCodes() {
       }
     }
 
-    // Reload codes to update display
     await loadCodes();
 
     if (errorCount === 0) {
@@ -269,7 +315,7 @@ async function printSingleCode(recNo, code, codeType) {
   const messageDiv = document.getElementById("printMessage");
 
   if (!isConnected) {
-    showMessage(messageDiv, "Please connect to printer first", "error");
+    showMessage(messageDiv, "Please select a printer first", "error");
     return;
   }
 
@@ -277,9 +323,8 @@ async function printSingleCode(recNo, code, codeType) {
     const result = await window.api.printLabel(code, codeType);
 
     if (result.success) {
-      // Mark as printed in database
       await window.api.markAsPrinted(recNo);
-      await loadCodes(); // Reload to update display
+      await loadCodes();
       showMessage(messageDiv, `✓ Printed: ${code}`, "success");
     } else {
       showMessage(messageDiv, `Print failed: ${result.message}`, "error");
@@ -328,7 +373,6 @@ function updateCodesDisplay() {
     return;
   }
 
-  // Sort codes: pending first, then by date
   const sortedCodes = [...allCodes].sort((a, b) => {
     if (a.IsPrinted !== b.IsPrinted) return a.IsPrinted ? 1 : -1;
     return new Date(b.DownloadDate) - new Date(a.DownloadDate);
@@ -337,42 +381,40 @@ function updateCodesDisplay() {
   container.innerHTML = sortedCodes
     .map(
       (code) => `
-        <div class="code-item ${code.IsPrinted ? "printed" : ""}">
-            <div class="code-info">
-                <div class="code-text">${code.Code}</div>
-                <div class="code-meta">
-                    <span class="code-type">${code.CodeType}</span>
-                    <span class="code-date">${formatDate(
-                      code.DownloadDate
-                    )}</span>
-                    ${
-                      code.PrintDate
-                        ? `<span class="code-date">Printed: ${formatDate(
-                            code.PrintDate
-                          )}</span>`
-                        : ""
-                    }
-                </div>
-            </div>
-            <div class="code-actions">
-                <div class="code-status ${code.IsPrinted ? "printed" : ""}">
-                    ${code.IsPrinted ? "Printed" : "Pending"}
-                </div>
-                ${
-                  !code.IsPrinted
-                    ? `
-                    <button class="btn-print-single" onclick="printSingleCode(${
-                      code.RecNo
-                    }, '${code.Code}', '${code.CodeType}')" ${
-                        !isConnected ? "disabled" : ""
-                      }>
-                        Print
-                    </button>
-                `
-                    : ""
-                }
-            </div>
+      <div class="code-item ${code.IsPrinted ? "printed" : ""}">
+        <div class="code-info">
+          <div class="code-text">${code.Code}</div>
+          <div class="code-meta">
+            <span class="code-type">${code.CodeType}</span>
+            <span class="code-date">${formatDate(code.DownloadDate)}</span>
+            ${
+              code.PrintDate
+                ? `<span class="code-date">Printed: ${formatDate(
+                    code.PrintDate
+                  )}</span>`
+                : ""
+            }
+          </div>
         </div>
+        <div class="code-actions">
+          <div class="code-status ${code.IsPrinted ? "printed" : ""}">
+            ${code.IsPrinted ? "Printed" : "Pending"}
+          </div>
+          ${
+            !code.IsPrinted
+              ? `
+            <button class="btn-print-single" onclick="printSingleCode(${
+              code.RecNo
+            }, '${code.Code}', '${code.CodeType}')" ${
+                  !isConnected ? "disabled" : ""
+                }>
+              Print
+            </button>
+          `
+              : ""
+          }
+        </div>
+      </div>
     `
     )
     .join("");
@@ -391,7 +433,6 @@ function updateCounts() {
 function updatePrintButtonState() {
   const printBtn = document.getElementById("printAllBtn");
   const hasPendingCodes = allCodes.some((code) => !code.IsPrinted);
-
   printBtn.disabled = !isConnected || !hasPendingCodes;
 }
 
@@ -399,9 +440,9 @@ function updatePrintButtonState() {
 function handleConnectionError(connectBtn, statusDiv, message) {
   isConnected = false;
   statusDiv.className = "status disconnected";
-  statusDiv.textContent = "⚫ Printer Disconnected";
+  statusDiv.textContent = "⚫ No Printer Selected";
   connectBtn.disabled = false;
-  connectBtn.textContent = "Connect to Printer";
+  connectBtn.textContent = "Select Printer";
 }
 
 function showMessage(element, text, type) {
@@ -419,21 +460,13 @@ function formatDate(dateString) {
   return date.toLocaleDateString() + " " + date.toLocaleTimeString();
 }
 
-// Event listeners for Enter key
-document.getElementById("quantity").addEventListener("keypress", function (e) {
-  if (e.key === "Enter") {
-    generateCodes();
-  }
-});
-
-document.getElementById("printerIP").addEventListener("keypress", function (e) {
-  if (e.key === "Enter") {
-    connectPrinter();
-  }
-});
-
-document.getElementById("logoutBtn").addEventListener("click", () => {
+function logout() {
   localStorage.clear();
   alert("Logged out successfully!");
   window.location.href = "../index.html";
+}
+
+// Event listeners for Enter key
+document.getElementById("quantity").addEventListener("keypress", function (e) {
+  if (e.key === "Enter") generateCodes();
 });
