@@ -3,23 +3,29 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 
-// Get list of installed printers
+// ===============================
+// 🔌 GET INSTALLED PRINTERS (Windows PowerShell)
+// ===============================
 async function getInstalledPrinters() {
   return new Promise((resolve, reject) => {
     if (process.platform === "win32") {
-      exec("wmic printer get name,default", (error, stdout) => {
+      const command =
+        `powershell -Command "Get-Printer | Select-Object Name,Default"`;
+
+      exec(command, (error, stdout) => {
         if (error) return reject(error);
 
         const printers = [];
-        const lines = stdout.split("\n").slice(1);
+        const lines = stdout.split("\n").slice(3); // skip PS headers
 
-        lines.forEach((line) => {
-          if (line.trim()) {
-            const parts = line.split(/\s{2,}/);
+        lines.forEach(line => {
+          const parts = line.trim().split(/\s{2,}/);
+          if (parts.length >= 1) {
             const name = parts[0].trim();
             const isDefault =
-              parts.length > 1 && parts[1].toLowerCase().includes("true");
-            printers.push({ name, isDefault });
+              parts.length > 1 && parts[1].trim().toLowerCase() === "true";
+
+            if (name) printers.push({ name, isDefault });
           }
         });
 
@@ -57,83 +63,98 @@ async function getInstalledPrinters() {
   });
 }
 
-// Generate TSPL commands for master label
+// ===============================
+// 🧾 TSPL LABEL GENERATORS (100% TSC FORMAT)
+// ===============================
+
+// MONO LABEL (small)
 function generateMonoLabelTSPL(qrCode) {
-  return `^XA
-^LL320
-^PW480
-^FO60,40^BQN,2,6^FDLA,${qrCode}^FS
-^CF0,20
-^FO20,340^FD${qrCode}^FS
-^XZ`;
+  return `
+SIZE 60 mm, 40 mm
+GAP 2 mm, 0 mm
+CLS
+QRCODE 60,40,L,5,A,0,M2,"${qrCode}"
+TEXT 20,160,"3",0,1,1,"${qrCode}"
+PRINT 1
+`;
 }
 
+// MASTER LABEL (big)
 function generateMasterLabelTSPL(qrCode) {
-  return `^XA
-^LL406
-^PW812
-^CF1,40
-^FO560,100^FD|^FS
-^FO560,140^FD|^FS
-^FO560,180^FD|^FS
-^FO560,220^FD|^FS
-^FO560,260^FD|^FS
-^FO560,300^FD|^FS
-^FO560,340^FD|^FS
-^FO560,380^FD|^FS
-^FO100,100^BQN,2,7^FDLA,${qrCode}^FS
-^FO750,100^BQN,2,7^FDLA,${qrCode}^FS
-^CF0,45
-^FO320,500^FD${qrCode}^FS
-^XZ`;
+  return `
+SIZE 100 mm, 80 mm
+GAP 2 mm, 0 mm
+CLS
+
+QRCODE 100,100,L,7,A,0,M2,"${qrCode}"
+QRCODE 600,100,L,7,A,0,M2,"${qrCode}"
+
+TEXT 320,500,"3",0,2,2,"${qrCode}"
+
+DRAW LINE 560,100,560,380,3
+
+PRINT 1
+`;
 }
 
-// Print raw data to printer
+// ===============================
+// 🖨 RAW PRINT FUNCTION
+// ===============================
 async function printRaw(tsplData, printerName) {
   return new Promise((resolve, reject) => {
     if (!printerName) return reject(new Error("No printer specified"));
 
-    const tempFile = path.join(os.tmpdir(), `label_${Date.now()}.zpl`);
+    const tempFile = path.join(os.tmpdir(), `label_${Date.now()}.txt`);
     fs.writeFileSync(tempFile, tsplData, "utf8");
 
     let cmd = "";
+
     if (process.platform === "win32") {
-      cmd = `print /D:"${printerName}" "${tempFile}"`;
+      // Send raw text to USB printer
+      cmd = `powershell -Command "Get-Content '${tempFile}' | Out-Printer -Name '${printerName}'"`;
     } else {
       cmd = `lpr -P "${printerName}" "${tempFile}"`;
     }
 
     exec(cmd, (error) => {
-      try {
-        fs.unlinkSync(tempFile);
-      } catch (e) {}
-      if (error) reject(new Error(`Print failed: ${error.message}`));
-      else resolve({ success: true, message: "Print job sent successfully" });
+      try { fs.unlinkSync(tempFile); } catch (e) {}
+
+      if (error)
+        reject(new Error(`Print failed: ${error.message}`));
+      else
+        resolve({ success: true, message: "Print job sent" });
     });
   });
 }
 
-// Print master label
+// ===============================
+// 🏷 PRINT MASTER LABEL
+// ===============================
 async function printMasterLabel(qrCode, printerName) {
   const tspl = generateMasterLabelTSPL(qrCode);
   return await printRaw(tspl, printerName);
 }
 
-// Print mono label
+// ===============================
+// 🏷 PRINT MONO LABEL
+// ===============================
 async function printMonoLabel(qrCode, printerName) {
   const tspl = generateMonoLabelTSPL(qrCode);
   return await printRaw(tspl, printerName);
 }
 
-// Test printer
+// ===============================
+// 🧪 TEST PRINT
+// ===============================
 async function testPrinter(printerName) {
-  const testLabel = `^XA
-^CF0,60
-^FO50,50^FDPrinter Test^FS
-^CF0,40
-^FO50,150^FDPrinter: ${printerName}^FS
-^FO50,250^FDStatus: Working!^FS
-^XZ`;
+  const testLabel = `
+SIZE 80 mm, 50 mm
+CLS
+TEXT 50,50,"4",0,2,2,"Printer Test"
+TEXT 50,150,"3",0,1,1,"Printer: ${printerName}"
+TEXT 50,250,"3",0,1,1,"Status: Working!"
+PRINT 1
+`;
   return await printRaw(testLabel, printerName);
 }
 
