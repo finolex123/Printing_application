@@ -1,4 +1,4 @@
-const { execFile } = require("child_process");
+const { exec, execFile } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
@@ -6,56 +6,122 @@ const os = require("os");
 // =====================================
 // PATH TO HELPER EXE
 // =====================================
-const HELPER_EXE = path.join(__dirname, "TSCLabelPrinter.exe"); // replace with your exe name
+const HELPER_EXE = path.join(__dirname, "..", "TSCLabelPrinter.exe");
 
 // =====================================
-// UNIVERSAL PRINTER FETCHER (Windows + Mac/Linux)
+// SAFE POWERSHELL DETECTION
+// =====================================
+function getPowerShellPath() {
+  let ps = path.join(process.env.windir, "Sysnative", "WindowsPowerShell", "v1.0", "powershell.exe");
+  if (fs.existsSync(ps)) return `"${ps}"`;
+
+  ps = path.join(process.env.windir, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  if (fs.existsSync(ps)) return `"${ps}"`;
+
+  return null;
+}
+
+// =====================================
+// GET INSTALLED PRINTERS (Universal)
 // =====================================
 async function getInstalledPrinters() {
   return new Promise((resolve) => {
+    // ------------------------------
+    // 🍏 MAC / 🐧 LINUX
+    // ------------------------------
     if (process.platform !== "win32") {
-      // mac/linux
-      const { exec } = require("child_process");
       exec("lpstat -p", (error, stdout) => {
         if (error) return resolve([]);
+
         const printers = stdout
           .split("\n")
           .map((line) => line.match(/printer\s+(\S+)/i)?.[1])
-          .filter(Boolean);
+          .filter(Boolean)
+          .map((name) => ({
+            name,
+            isDefault: false
+          }));
+
         resolve(printers);
       });
       return;
     }
 
-    // Windows → WMIC fallback
-    const { exec } = require("child_process");
-    exec(`wmic printer get Name /format:csv`, (err, stdout) => {
-      if (err || !stdout) return resolve([]);
-      const lines = stdout.split("\n").filter((l) => l.includes(","));
-      const printers = lines
-        .map((row) => row.split(",")[1]?.trim())
-        .filter(Boolean);
-      resolve(printers);
-    });
+    // ------------------------------
+    // 🪟 WINDOWS → PowerShell first
+    // ------------------------------
+    const psPath = getPowerShellPath();
+    if (psPath) {
+      const cmd = `${psPath} -NoProfile -Command "Get-Printer | Select-Object Name,Default | ConvertTo-Json -Compress 2>$null"`;
+
+      exec(cmd, (err, stdout) => {
+        if (!err) {
+          try {
+            const parsed = JSON.parse(stdout.trim());
+
+            const printers = (Array.isArray(parsed) ? parsed : [parsed]).map((p) => ({
+              name: p.Name,
+              isDefault: p.Default === true
+            }));
+
+            return resolve(printers);
+          } catch (e) {
+            console.error("PowerShell JSON parse error:", e);
+          }
+        }
+
+        // PowerShell failed → fallback
+        runWMIC(resolve);
+      });
+
+      return;
+    }
+
+    // No PowerShell → WMIC fallback
+    runWMIC(resolve);
   });
 }
 
 // =====================================
-// RAW PRINTING (USING EXE)
+// WMIC FALLBACK (Windows)
+// =====================================
+function runWMIC(resolve) {
+  exec(`wmic printer get Name,Default /format:csv`, (err, stdout) => {
+    if (err || !stdout) return resolve([]);
+
+    const lines = stdout.split("\n").filter((l) => l.includes(","));
+
+    const printers = lines
+      .map((row) => row.split(","))
+      .map((cols) => ({
+        name: cols[cols.length - 2]?.trim(),
+        isDefault: cols[cols.length - 1]?.trim().toLowerCase() === "true"
+      }))
+      .filter((p) => p.name);
+
+    resolve(printers);
+  });
+}
+
+// =====================================
+// RAW TSPL PRINTING (Via EXE)
 // =====================================
 async function printRaw(tsplData, printerName) {
   return new Promise((resolve, reject) => {
     if (!printerName) return reject("No printer selected");
 
-    // write temporary label file
     const tempFile = path.join(os.tmpdir(), `label_${Date.now()}.txt`);
     fs.writeFileSync(tempFile, tsplData);
 
-    // call exe: exeFile tempFile printerName
     execFile(HELPER_EXE, [tempFile, printerName], (err, stdout) => {
       fs.unlinkSync(tempFile);
+
       if (err) return reject("Print failed: " + err.message);
-      resolve({ success: true, message: stdout || "Print job sent" });
+
+      resolve({
+        success: true,
+        message: stdout || "Print job sent"
+      });
     });
   });
 }
@@ -109,10 +175,13 @@ PRINT 1
   return printRaw(testLabel, printerName);
 }
 
+// =====================================
+// EXPORT APIS
+// =====================================
 module.exports = {
   getInstalledPrinters,
   printRaw,
   printMonoLabel,
   printMasterLabel,
-  testPrinter,
+  testPrinter
 };
