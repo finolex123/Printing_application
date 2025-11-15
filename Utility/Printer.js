@@ -1,138 +1,67 @@
-const { exec } = require("child_process");
+const { execFile } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
 
 // =====================================
-// 🔍 SAFE POWERSHELL DETECTION
+// PATH TO HELPER EXE
 // =====================================
-function getPowerShellPath() {
-  let ps = path.join(process.env.windir, "Sysnative", "WindowsPowerShell", "v1.0", "powershell.exe");
-  if (fs.existsSync(ps)) return `"${ps}"`;
-
-  ps = path.join(process.env.windir, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
-  if (fs.existsSync(ps)) return `"${ps}"`;
-
-  return null; 
-}
+const HELPER_EXE = path.join(__dirname, "printerHelper.exe"); // replace with your exe name
 
 // =====================================
-// 🖨 UNIVERSAL PRINTER FETCHER (Windows + Mac/Linux)
+// UNIVERSAL PRINTER FETCHER (Windows + Mac/Linux)
 // =====================================
 async function getInstalledPrinters() {
   return new Promise((resolve) => {
-    // 🍏 MAC / 🐧 LINUX
     if (process.platform !== "win32") {
+      // mac/linux
+      const { exec } = require("child_process");
       exec("lpstat -p", (error, stdout) => {
         if (error) return resolve([]);
-
-        exec("lpstat -d", (err2, defOut) => {
-          const defaultPrinter =
-            defOut.match(/system default destination:\s*(.+)/i)?.[1] || "";
-
-          const printers = stdout
-            .split("\n")
-            .map((line) => line.match(/printer\s+(\S+)/i)?.[1])
-            .filter(Boolean)
-            .map((p) => ({
-              name: p,
-              isDefault: p === defaultPrinter,
-            }));
-
-          resolve(printers);
-        });
+        const printers = stdout
+          .split("\n")
+          .map((line) => line.match(/printer\s+(\S+)/i)?.[1])
+          .filter(Boolean);
+        resolve(printers);
       });
       return;
     }
 
-    // 🪟 WINDOWS
-    const psPath = getPowerShellPath();
-
-    if (psPath) {
-      const cmd = `${psPath} -NoProfile -Command "Get-Printer | Select-Object Name,Default | ConvertTo-Json -Compress 2>$null"`;
-
-      exec(cmd, (err, stdout) => {
-        if (!err) {
-          try {
-            const clean = stdout.trim();
-            const printers = JSON.parse(clean);
-
-            return resolve(
-              (Array.isArray(printers) ? printers : [printers]).map((p) => ({
-                name: p.Name,
-                isDefault: p.Default,
-              }))
-            );
-          } catch {}
-        }
-
-        // PowerShell failed → WMIC fallback
-        runWMIC(resolve);
-      });
-
-      return;
-    }
-
-    // NO PowerShell → Directly use WMIC fallback
-    runWMIC(resolve);
-  });
-}
-
-// =====================================
-// 🪟 WMIC FALLBACK (Windows)
-// =====================================
-function runWMIC(resolve) {
-  exec(`wmic printer get Name,Default /format:csv`, (err, stdout) => {
-    if (err || !stdout) return resolve([]);
-
-    const lines = stdout.split("\n").filter((l) => l.includes(","));
-
-    const list = lines
-      .map((row) => row.split(","))
-      .map((cols) => ({
-        name: cols[cols.length - 2]?.trim(),
-        isDefault: cols[cols.length - 1]?.trim().toLowerCase() === "true",
-      }))
-      .filter((p) => p.name);
-
-    resolve(list);
-  });
-}
-
-// =====================================
-// 🖨 RAW PRINTING (Windows + Mac/Linux)
-// =====================================
-async function printRaw(tsplData, printerName) {
-  return new Promise((resolve, reject) => {
-    if (!printerName) return reject("No printer selected");
-
-    const tempFile = path.join(os.tmpdir(), `label_${Date.now()}.txt`);
-    fs.writeFileSync(tempFile, tsplData);
-
-    let cmd = "";
-
-    if (process.platform === "win32") {
-      const psPath = getPowerShellPath();
-
-      if (psPath) {
-        cmd = `${psPath} -NoProfile -Command "Get-Content -Raw '${tempFile}' | Out-Printer -Name '${printerName}'"`;
-      } else {
-        cmd = `print /D:"${printerName}" "${tempFile}"`;
-      }
-    } else {
-      cmd = `lpr -P "${printerName}" "${tempFile}"`;
-    }
-
-    exec(cmd, (err) => {
-      fs.unlinkSync(tempFile);
-      if (err) return reject("Print failed: " + err);
-      resolve({ success: true, message: "Print job sent" });
+    // Windows → WMIC fallback
+    const { exec } = require("child_process");
+    exec(`wmic printer get Name /format:csv`, (err, stdout) => {
+      if (err || !stdout) return resolve([]);
+      const lines = stdout.split("\n").filter((l) => l.includes(","));
+      const printers = lines
+        .map((row) => row.split(",")[1]?.trim())
+        .filter(Boolean);
+      resolve(printers);
     });
   });
 }
 
 // =====================================
-// 🧾 TSPL LABEL GENERATORS
+// RAW PRINTING (USING EXE)
+// =====================================
+async function printRaw(tsplData, printerName) {
+  return new Promise((resolve, reject) => {
+    if (!printerName) return reject("No printer selected");
+
+    // write temporary label file
+    const tempFile = path.join(os.tmpdir(), `label_${Date.now()}.txt`);
+    fs.writeFileSync(tempFile, tsplData);
+
+    // call exe: exeFile tempFile printerName
+    execFile(HELPER_EXE, [tempFile, printerName], (err, stdout) => {
+      fs.unlinkSync(tempFile);
+      if (err) return reject("Print failed: " + err.message);
+      resolve({ success: true, message: stdout || "Print job sent" });
+    });
+  });
+}
+
+// =====================================
+// TSPL LABEL GENERATORS
 // =====================================
 function generateMonoLabelTSPL(qr) {
   return `
@@ -159,29 +88,22 @@ PRINT 1
 }
 
 // =====================================
-// 🔍 PRINT MONO LABEL
+// PRINT FUNCTIONS
 // =====================================
 async function printMonoLabel(qr, printerName) {
   return printRaw(generateMonoLabelTSPL(qr), printerName);
 }
 
-// =====================================
-// 🔍 PRINT MASTER LABEL
-// =====================================
 async function printMasterLabel(qr, printerName) {
   return printRaw(generateMasterLabelTSPL(qr), printerName);
 }
 
-// =====================================
-// 🧪 TEST PRINT
-// =====================================
 async function testPrinter(printerName) {
   const testLabel = `
 SIZE 80 mm, 50 mm
 CLS
 TEXT 50,50,"4",0,2,2,"Printer Test"
-TEXT 50,150,"3",0,1,1,"Printer: ${printerName}"
-TEXT 50,250,"3",0,1,1,"Status: Working!"
+TEXT 50,150,"3",0,1,1,"Status: Working!"
 PRINT 1
 `;
   return printRaw(testLabel, printerName);
