@@ -6,7 +6,7 @@ const os = require("os");
 // =====================================
 // PATH TO HELPER EXE
 // =====================================
-const HELPER_EXE = path.join(__dirname, "printerHelper.exe"); // replace with your exe name
+const HELPER_EXE = path.join(__dirname, "TSCLabelPrinter.exe"); // replace with your exe name
 
 // =====================================
 // UNIVERSAL PRINTER FETCHER (Windows + Mac/Linux)
